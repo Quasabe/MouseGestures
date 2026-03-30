@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <Extern href="stdidcmd.h"/>
+  <Extern href="vsshlids.h"/>
+
+  <Commands package="guidMouseGesturesPackage">
+    <Groups>
+      <Group guid="guidMouseGesturesPackageCmdSet" id="MyMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS"/>
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidMouseGesturesPackageCmdSet" id="OpenGestureSettingsCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidMouseGesturesPackageCmdSet" id="MyMenuGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Mouse Gesture Settings...</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+
+    <Bitmaps>
+      <Bitmap guid="guidImages" href="Resources\Icon.png" usedList="bmpPic1"/>
+    </Bitmaps>
+  </Commands>
+
+  <Symbols>
+    <GuidSymbol name="guidMouseGesturesPackage" value="{94562305-f936-4b56-b160-176b58df9fea}" />
+
+    <GuidSymbol name="guidMouseGesturesPackageCmdSet" value="{a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d}">
+      <IDSymbol name="MyMenuGroup" value="0x1020" />
+      <IDSymbol name="OpenGestureSettingsCommandId" value="0x0100" />
+    </GuidSymbol>
+
+    <GuidSymbol name="guidImages" value="{d2e3f4a5-b6c7-4d8e-9f0a-1b2c3d4e5f6a}" >
+      <IDSymbol name="bmpPic1" value="1" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>
