@@ -481,7 +481,7 @@
 
                                 <TextBlock HorizontalAlignment="Center" Margin="0,0,0,10">
                                     <Run Text="🔗 " FontSize="14" />
-                                    <Hyperlink NavigateUri="https://github.com/username/MouseGestures"
+                                    <Hyperlink NavigateUri="https://github.com/Quasabe/MouseGestures"
                                                RequestNavigate="Hyperlink_RequestNavigate"
                                                Foreground="#7B68AB">
                                         <Run Text="GitHub Repository" />

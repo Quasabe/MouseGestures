@@ -4,7 +4,7 @@
         <Identity Id="MouseGestures.94562305-f936-4b56-b160-176b58df9fea" Version="1.1" Language="en-US" Publisher="Peter" />
         <DisplayName>Mouse Gestures for Visual Studio</DisplayName>
         <Description xml:space="preserve">Execute Visual Studio commands using mouse gestures. Hold right mouse button and draw patterns to trigger various VS functions. Navigate backward with left gesture, forward with right, and much more!</Description>
-        <MoreInfo>https://github.com/yourrepo/mousegestures</MoreInfo>
+        <MoreInfo>https://github.com/Quasabe/MouseGestures</MoreInfo>
         <Icon>Resources\Icon.png</Icon>
         <PreviewImage>Resources\Icon.png</PreviewImage>
         <Tags>mouse, gestures, productivity, navigation, shortcuts</Tags>
