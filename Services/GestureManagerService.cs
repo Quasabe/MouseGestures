@@ -21,8 +21,7 @@ namespace MouseGestures.Services
 
         public GestureManagerService()
         {
-            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string extensionFolder = Path.Combine(appDataPath, "MouseGestures");
+            string extensionFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MouseGestures");
             Directory.CreateDirectory(extensionFolder);
             _configFilePath = Path.Combine(extensionFolder, "gestures.json");
 
@@ -126,6 +125,20 @@ namespace MouseGestures.Services
                 .FirstOrDefault(g => g.MatchesPattern(pattern));
         }
 
+        public void ResetToDefaults()
+        {
+            _gestures.Clear();
+            InitializeDefaultGestures();
+        }
+
+        public void DeleteConfigFile()
+        {
+            if (File.Exists(_configFilePath))
+            {
+                File.Delete(_configFilePath);
+            }
+        }
+
         private void InitializeDefaultGestures()
         {
             _gestures.Add(new MouseGesture
@@ -146,18 +159,10 @@ namespace MouseGestures.Services
 
             _gestures.Add(new MouseGesture
             {
-                Name = "Go To Definition",
+                Name = "Close Document",
                 Pattern = new List<GestureDirection> { GestureDirection.Down, GestureDirection.Right },
-                VsCommandId = "Edit.GoToDefinition",
-                VsCommandName = "Go To Definition"
-            });
-
-            _gestures.Add(new MouseGesture
-            {
-                Name = "Find All References",
-                Pattern = new List<GestureDirection> { GestureDirection.Down, GestureDirection.Left },
-                VsCommandId = "Edit.FindAllReferences",
-                VsCommandName = "Find All References"
+                VsCommandId = "Window.CloseDocumentWindow",
+                VsCommandName = "Close Document"
             });
 
             _gestures.Add(new MouseGesture

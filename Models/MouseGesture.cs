@@ -15,6 +15,7 @@ namespace MouseGestures.Models
         private string _vsCommandId = string.Empty;
         private string _vsCommandName = string.Empty;
         private bool _isEnabled = true;
+        private List<GestureDirection> _pattern = new List<GestureDirection>();
 
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -28,7 +29,16 @@ namespace MouseGestures.Models
             }
         }
 
-        public List<GestureDirection> Pattern { get; set; } = new List<GestureDirection>();
+        public List<GestureDirection> Pattern
+        {
+            get => _pattern;
+            set
+            {
+                _pattern = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PatternDescription));
+            }
+        }
 
         public string VsCommandId
         {

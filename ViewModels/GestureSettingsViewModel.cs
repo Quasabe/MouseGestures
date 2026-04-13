@@ -153,6 +153,7 @@ namespace MouseGestures.ViewModels
         public ICommand RecordGestureCommand { get; }
         public ICommand CancelRecordingCommand { get; }
         public ICommand SaveCommand { get; }
+        public ICommand ResetToDefaultsCommand { get; }
 
         public GestureSettingsViewModel(GestureManagerService gestureManager, GestureOrchestratorService orchestrator)
         {
@@ -175,6 +176,7 @@ namespace MouseGestures.ViewModels
             RecordGestureCommand = new RelayCommand(RecordGesture, CanRecordGesture);
             CancelRecordingCommand = new RelayCommand(CancelRecording, () => IsRecordingGesture);
             SaveCommand = new RelayCommand(Save, CanSave);
+            ResetToDefaultsCommand = new RelayCommand(ResetToDefaults);
         }
 
         public void SetOwnerWindow(Window window)
@@ -278,6 +280,44 @@ namespace MouseGestures.ViewModels
                 // Start recording
                 IsRecordingGesture = true;
                 _orchestrator.StartGestureRecording(OnGestureRecorded, OnGestureStartedCallback);
+            }
+        }
+
+        private void ResetToDefaults()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            var result = MessageBox.Show(
+                _ownerWindow,
+                "This will delete all your custom gestures and restore default gestures.\n\n" +
+                "Do you want to continue?",
+                "Reset to Defaults",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                // Reset to defaults
+                _gestureManager.ResetToDefaults();
+                _gestureManager.DeleteConfigFile();
+
+                // Reload UI
+                Gestures.Clear();
+                foreach (var gesture in _gestureManager.Gestures)
+                {
+                    Gestures.Add(gesture);
+                }
+
+                SelectedGesture = null;
+                HasDuplicatePattern = false;
+                DuplicatePatternMessage = string.Empty;
+
+                MessageBox.Show(
+                    _ownerWindow,
+                    "Gestures have been reset to defaults.",
+                    "Reset Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
         }
 

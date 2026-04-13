@@ -503,19 +503,25 @@
             </TabControl>
         </Grid>
 
-        <!-- Bottom Buttons -->
-        <StackPanel Grid.Row="3"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,20,0,0">
-            <Button Content="💾 Save"
-                    Command="{Binding SaveCommand}"
-                    Style="{StaticResource ModernButtonStyle}"
-                    Width="100" />
-            <Button Content="✖ Close"
-                    Click="CloseButton_Click"
-                    Style="{StaticResource ModernButtonStyle}"
-                    Width="100" />
-        </StackPanel>
+        <!-- Bottom Buttons X -->
+        <Grid Grid.Row="3" Margin="0,20,0,0">
+            <Button Content="🔄 Reset to Defaults"
+                    Command="{Binding ResetToDefaultsCommand}"
+                    Style="{StaticResource DangerButtonStyle}"
+                    Width="150"
+                    HorizontalAlignment="Left" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button Content="💾 Save"
+                        Command="{Binding SaveCommand}"
+                        Style="{StaticResource ModernButtonStyle}"
+                        Width="100" />
+                <Button Content="✖ Close"
+                        Click="CloseButton_Click"
+                        Style="{StaticResource ModernButtonStyle}"
+                        Width="100" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

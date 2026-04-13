@@ -60,12 +60,12 @@ namespace MouseGestures
             // Initialize services
             var logger = new TraceSource("MouseGestures")
             {
-                Switch = new SourceSwitch("MouseGesturesSwitch", "All") // alebo "All"
+                Switch = new SourceSwitch("MouseGesturesSwitch", "All")
             };
 
             // Add file listener
             var logPath = Path.Combine(
-                "C:\\Users\\PeterJanák\\Downloads\\",
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "MouseGestures",
                 "trace.log");
 
