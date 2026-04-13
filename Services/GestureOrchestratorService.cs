@@ -22,6 +22,7 @@ namespace MouseGestures.Services
         private Action _gestureStartedCallback;
         private bool _isRecordingMode;
         private bool _visualizationEnabled = true;
+        private bool _isSettingsWindowOpen = false;
 
         public GestureVisualizationSettings VisualizationSettings => _visualSettings;
 
@@ -53,6 +54,12 @@ namespace MouseGestures.Services
             _isRecordingMode = false;
             _recordingCallback = null;
             _logger.TraceEvent(TraceEventType.Information, 0, "Gesture orchestrator stopped");
+        }
+
+        public void SetSettingsWindowOpen(bool isOpen)
+        {
+            _isSettingsWindowOpen = isOpen;
+            _logger.TraceEvent(TraceEventType.Information, 0, $"Settings window open state changed: {isOpen}");
         }
 
         public void StartGestureRecording(Action<List<GestureDirection>> patternCallback, Action gestureStartedCallback = null)
@@ -89,6 +96,14 @@ namespace MouseGestures.Services
         private void OnGestureStarted(object sender, Point startPoint)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+
+            // If settings window is open and NOT in recording mode, ignore gesture completely
+            if (_isSettingsWindowOpen && !_isRecordingMode)
+            {
+                _logger.TraceEvent(TraceEventType.Verbose, 0,
+                    "Ignoring gesture start - settings window is open (not recording)");
+                return;
+            }
 
             _recognitionService.StartGesture(startPoint);
 
@@ -138,6 +153,12 @@ namespace MouseGestures.Services
         private void OnGesturePointAdded(object sender, Point point)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+
+            // If settings window is open and NOT in recording mode, ignore gesture completely
+            if (_isSettingsWindowOpen && !_isRecordingMode)
+            {
+                return;
+            }
 
             _recognitionService.AddPoint(point);
 
@@ -212,6 +233,14 @@ namespace MouseGestures.Services
 
                 // Invoke callback after cleanup
                 callback?.Invoke(detectedPattern);
+            }
+            else if (_isSettingsWindowOpen)
+            {
+                // Settings window is open - ignore gesture execution
+                _logger.TraceEvent(TraceEventType.Information, 0, "Ignoring gesture - settings window is open");
+
+                // Don't block context menu when settings are open
+                _mouseHook.ResetGestureState();
             }
             else if (detectedPattern.Count > 0)
             {

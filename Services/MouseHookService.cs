@@ -20,7 +20,7 @@ namespace MouseGestures.Services
         private bool _isRightButtonDown;
         private bool _isGestureActive;
         private bool _isRecordingMode;
-        private bool _shouldBlockContextMenu = false;
+        private bool _isSyntheticEvent = false; // Track synthetic events
 
         public event EventHandler<Point> GestureStarted;
 
@@ -100,11 +100,22 @@ namespace MouseGestures.Services
         {
             if (nCode >= 0)
             {
+                var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
+
                 bool isVsWindow = IsVisualStudioWindow();
 
-                // Always handle WM_RBUTTONUP if we have an active gesture
+                // Handle WM_RBUTTONUP
                 if (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP && _isRightButtonDown)
                 {
+                    // If this is our synthetic event, let it pass through
+                    if (_isSyntheticEvent && isInjected)
+                    {
+                        _isSyntheticEvent = false;
+                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+                        return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                    }
+
                     bool wasRecordingMode = _isRecordingMode;
                     bool wasGestureActive = _isGestureActive;
 
@@ -113,13 +124,16 @@ namespace MouseGestures.Services
 
                     HandleRightButtonUp();
 
-                    // Block WM_RBUTTONUP only if gesture was active AND we should block context menu
-                    // This prevents context menu from appearing
-                    if (isVsWindow && wasGestureActive && !wasRecordingMode && _shouldBlockContextMenu)
+                    // Block WM_RBUTTONUP if gesture was active (to prevent context menu)
+                    // Then send synthetic event to keep Windows mouse state correct
+                    if (isVsWindow && wasGestureActive && !wasRecordingMode)
                     {
-                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP to prevent context menu");
-                        _shouldBlockContextMenu = false; // Reset flag
-                        return (IntPtr)1;
+                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
+
+                        // Send synthetic RBUTTONUP to keep Windows state consistent
+                        SendSyntheticRightButtonUp();
+
+                        return (IntPtr)1; // Block original event
                     }
 
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
@@ -131,7 +145,6 @@ namespace MouseGestures.Services
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                 }
 
-                var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
                 var currentPoint = new Point(hookStruct.pt.x, hookStruct.pt.y);
 
                 try
@@ -141,7 +154,6 @@ namespace MouseGestures.Services
                         HandleRightButtonDown(currentPoint);
 
                         // Block right button down if gesture is already active
-                        // (shouldn't happen, but safety check)
                         if (_isGestureActive)
                         {
                             _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN - gesture active");
@@ -161,7 +173,7 @@ namespace MouseGestures.Services
                     }
                     else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONUP && _isGestureActive)
                     {
-                        // Don't block LBUTTONUP either - same reason as RBUTTONUP
+                        // Don't block LBUTTONUP - prevents stuck button state
                         _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing WM_LBUTTONUP through");
                     }
                 }
@@ -172,6 +184,31 @@ namespace MouseGestures.Services
             }
 
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+        }
+
+        private void SendSyntheticRightButtonUp()
+        {
+            _isSyntheticEvent = true;
+
+            var input = new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = NativeMethods.MOUSEEVENTF_RIGHTUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            };
+
+            NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+            _logger.TraceEvent(TraceEventType.Verbose, 0, "Sent synthetic RBUTTONUP");
         }
 
         private void HandleRightButtonDown(Point point)
@@ -245,10 +282,11 @@ namespace MouseGestures.Services
             return processId == _currentProcessId;
         }
 
+        // Method no longer needed - always block gestures
         public void SetShouldBlockContextMenu(bool shouldBlock)
         {
-            _shouldBlockContextMenu = shouldBlock;
-            _logger.TraceEvent(TraceEventType.Verbose, 0, $"Context menu blocking set to: {shouldBlock}");
+            // Kept for compatibility, does nothing
+            _logger.TraceEvent(TraceEventType.Verbose, 0, $"SetShouldBlockContextMenu called (ignored)");
         }
 
         public void Dispose()

@@ -56,10 +56,21 @@ namespace MouseGestures.Commands
         {
             ThreadHelper.ThrowIfNotOnUIThread();
 
-            var viewModel = new GestureSettingsViewModel(_gestureManager, _orchestrator);
-            var window = new GestureSettingsWindow(viewModel);
+            // Tell orchestrator that settings window is opening
+            _orchestrator.SetSettingsWindowOpen(true);
 
-            window.ShowDialog();
+            try
+            {
+                var viewModel = new GestureSettingsViewModel(_gestureManager, _orchestrator);
+                var window = new GestureSettingsWindow(viewModel);
+
+                window.ShowDialog();
+            }
+            finally
+            {
+                // Always reset when window closes (even if exception occurs)
+                _orchestrator.SetSettingsWindowOpen(false);
+            }
         }
     }
 }
