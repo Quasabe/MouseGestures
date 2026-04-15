@@ -21,6 +21,10 @@ namespace MouseGestures.Services
         private bool _isGestureActive;
         private bool _isRecordingMode;
         private bool _isSyntheticEvent = false; // Track synthetic events
+        private readonly object _gesturePointDispatchLock = new object();
+        private Point _latestGesturePoint;
+        private bool _hasLatestGesturePoint;
+        private bool _isGesturePointDispatchScheduled;
 
         public event EventHandler<Point> GestureStarted;
 
@@ -93,6 +97,7 @@ namespace MouseGestures.Services
             _isRightButtonDown = false;
             _isGestureActive = false;
             _gestureStartPoint = null;
+            ClearPendingGesturePointDispatch();
             _logger.TraceEvent(TraceEventType.Information, 0, "Gesture state reset");
         }
 
@@ -100,86 +105,88 @@ namespace MouseGestures.Services
         {
             if (nCode >= 0)
             {
-                var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-                bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
-
                 bool isVsWindow = IsVisualStudioWindow();
-
-                // Handle WM_RBUTTONUP
-                if (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP && _isRightButtonDown)
+                if (isVsWindow)
                 {
-                    // If this is our synthetic event, let it pass through
-                    if (_isSyntheticEvent && isInjected)
+                    var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                    bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
+
+                    // Handle WM_RBUTTONUP
+                    if (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP && _isRightButtonDown)
                     {
-                        _isSyntheticEvent = false;
-                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+                        // If this is our synthetic event, let it pass through
+                        if (_isSyntheticEvent && isInjected)
+                        {
+                            _isSyntheticEvent = false;
+                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+                            return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                        }
+
+                        bool wasRecordingMode = _isRecordingMode;
+                        bool wasGestureActive = _isGestureActive;
+
+                        _logger.TraceEvent(TraceEventType.Verbose, 0,
+                            $"WM_RBUTTONUP detected, VS active: {isVsWindow}, gesture active: {wasGestureActive}, recording: {wasRecordingMode}");
+
+                        HandleRightButtonUp();
+
+                        // Block WM_RBUTTONUP if gesture was active (to prevent context menu)
+                        // Then send synthetic event to keep Windows mouse state correct
+                        if (isVsWindow && wasGestureActive && !wasRecordingMode)
+                        {
+                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
+
+                            // Send synthetic RBUTTONUP to keep Windows state consistent
+                            SendSyntheticRightButtonUp();
+
+                            return (IntPtr)1; // Block original event
+                        }
+
                         return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                     }
 
-                    bool wasRecordingMode = _isRecordingMode;
-                    bool wasGestureActive = _isGestureActive;
-
-                    _logger.TraceEvent(TraceEventType.Verbose, 0,
-                        $"WM_RBUTTONUP detected, VS active: {isVsWindow}, gesture active: {wasGestureActive}, recording: {wasRecordingMode}");
-
-                    HandleRightButtonUp();
-
-                    // Block WM_RBUTTONUP if gesture was active (to prevent context menu)
-                    // Then send synthetic event to keep Windows mouse state correct
-                    if (isVsWindow && wasGestureActive && !wasRecordingMode)
+                    // For other events, only process if VS is active window
+                    if (!isVsWindow)
                     {
-                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
-
-                        // Send synthetic RBUTTONUP to keep Windows state consistent
-                        SendSyntheticRightButtonUp();
-
-                        return (IntPtr)1; // Block original event
+                        return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                     }
 
-                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                }
+                    var currentPoint = new Point(hookStruct.pt.x, hookStruct.pt.y);
 
-                // For other events, only process if VS is active window
-                if (!isVsWindow)
-                {
-                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                }
-
-                var currentPoint = new Point(hookStruct.pt.x, hookStruct.pt.y);
-
-                try
-                {
-                    if (wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN)
+                    try
                     {
-                        HandleRightButtonDown(currentPoint);
-
-                        // Block right button down if gesture is already active
-                        if (_isGestureActive)
+                        if (wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN)
                         {
-                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN - gesture active");
+                            HandleRightButtonDown(currentPoint);
+
+                            // Block right button down if gesture is already active
+                            if (_isGestureActive)
+                            {
+                                _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN - gesture active");
+                                return (IntPtr)1;
+                            }
+                        }
+                        else if (wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE && _isRightButtonDown)
+                        {
+                            // DO NOT block WM_MOUSEMOVE - let the cursor move freely
+                            HandleMouseMove(currentPoint);
+                        }
+                        else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN && _isGestureActive)
+                        {
+                            // Block left button clicks during gesture to prevent text selection/cursor repositioning
+                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_LBUTTONDOWN - gesture active");
                             return (IntPtr)1;
                         }
+                        else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONUP && _isGestureActive)
+                        {
+                            // Don't block LBUTTONUP - prevents stuck button state
+                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing WM_LBUTTONUP through");
+                        }
                     }
-                    else if (wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE && _isRightButtonDown)
+                    catch (Exception ex)
                     {
-                        // DO NOT block WM_MOUSEMOVE - let the cursor move freely
-                        HandleMouseMove(currentPoint);
+                        _logger.TraceEvent(TraceEventType.Error, 0, $"Error in hook callback: {ex.Message}");
                     }
-                    else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN && _isGestureActive)
-                    {
-                        // Block left button clicks during gesture to prevent text selection/cursor repositioning
-                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_LBUTTONDOWN - gesture active");
-                        return (IntPtr)1;
-                    }
-                    else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONUP && _isGestureActive)
-                    {
-                        // Don't block LBUTTONUP - prevents stuck button state
-                        _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing WM_LBUTTONUP through");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.TraceEvent(TraceEventType.Error, 0, $"Error in hook callback: {ex.Message}");
                 }
             }
 
@@ -216,6 +223,7 @@ namespace MouseGestures.Services
             _isRightButtonDown = true;
             _gestureStartPoint = point;
             _isGestureActive = false;
+            ClearPendingGesturePointDispatch();
             _logger.TraceEvent(TraceEventType.Verbose, 0, $"Right button down at {point}");
         }
 
@@ -234,8 +242,7 @@ namespace MouseGestures.Services
             }
             else if (_isGestureActive)
             {
-                // Fire-and-forget - don't block hook thread
-                _ = FireEventAsync(() => GesturePointAdded?.Invoke(this, currentPoint));
+                QueueLatestGesturePoint(currentPoint);
             }
         }
 
@@ -256,7 +263,60 @@ namespace MouseGestures.Services
 
             _isRightButtonDown = false;
             _isGestureActive = false;
+            ClearPendingGesturePointDispatch();
             _logger.TraceEvent(TraceEventType.Information, 0, "STATE RESET: _isGestureActive=false, _isRightButtonDown=false");
+        }
+
+        private void QueueLatestGesturePoint(Point currentPoint)
+        {
+            bool shouldStartDispatch = false;
+
+            lock (_gesturePointDispatchLock)
+            {
+                _latestGesturePoint = currentPoint;
+                _hasLatestGesturePoint = true;
+
+                if (!_isGesturePointDispatchScheduled)
+                {
+                    _isGesturePointDispatchScheduled = true;
+                    shouldStartDispatch = true;
+                }
+            }
+
+            if (shouldStartDispatch)
+            {
+                _ = DispatchGesturePointsAsync();
+            }
+        }
+
+        private async Task DispatchGesturePointsAsync()
+        {
+            while (true)
+            {
+                Point pointToDispatch;
+
+                lock (_gesturePointDispatchLock)
+                {
+                    if (!_hasLatestGesturePoint)
+                    {
+                        _isGesturePointDispatchScheduled = false;
+                        return;
+                    }
+
+                    pointToDispatch = _latestGesturePoint;
+                    _hasLatestGesturePoint = false;
+                }
+
+                await FireEventAsync(() => GesturePointAdded?.Invoke(this, pointToDispatch));
+            }
+        }
+
+        private void ClearPendingGesturePointDispatch()
+        {
+            lock (_gesturePointDispatchLock)
+            {
+                _hasLatestGesturePoint = false;
+            }
         }
 
         private async Task FireEventAsync(Action eventInvoker)
