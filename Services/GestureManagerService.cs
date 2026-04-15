@@ -176,7 +176,7 @@ namespace MouseGestures.Services
             _gestures.Add(new MouseGesture
             {
                 Name = "Uncomment Selection",
-                Pattern = new List<GestureDirection> { GestureDirection.Left, GestureDirection.Up },
+                Pattern = new List<GestureDirection> { GestureDirection.Up },
                 VsCommandId = "Edit.UncommentSelection",
                 VsCommandName = "Uncomment Selection"
             });
