@@ -103,11 +103,15 @@ namespace MouseGestures.Services
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0)
+            //try to minimize processing for non-mouse events or irrelevant mouse events to reduce overhead
+            if (nCode >= 0 &&
+                (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP ||
+                 wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN ||
+                 wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE ||
+                 wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN ||
+                 wParam == (IntPtr)NativeMethods.WM_LBUTTONUP))
             {
-                bool isVsWindow = IsVisualStudioWindow();
-                if (isVsWindow)
-                {
+                    bool isVsWindow = IsVisualStudioWindow();                
                     var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
                     bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
 
@@ -187,7 +191,6 @@ namespace MouseGestures.Services
                     {
                         _logger.TraceEvent(TraceEventType.Error, 0, $"Error in hook callback: {ex.Message}");
                     }
-                }
             }
 
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
