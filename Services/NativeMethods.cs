@@ -57,6 +57,7 @@ namespace MouseGestures.Services
         // INPUT structures
         public const int INPUT_MOUSE = 0;
 
+        public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
         public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         public const uint LLMHF_INJECTED = 0x00000001;
 

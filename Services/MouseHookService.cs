@@ -20,7 +20,8 @@ namespace MouseGestures.Services
         private bool _isRightButtonDown;
         private bool _isGestureActive;
         private bool _isRecordingMode;
-        private bool _isSyntheticEvent = false; // Track synthetic events
+        private bool _isSyntheticEvent = false;      // Track synthetic RBUTTONUP (post-gesture cleanup)
+        private bool _isSyntheticRightClick = false;   // Track synthetic right-click (no-gesture case)
         private readonly object _gesturePointDispatchLock = new object();
         private Point _latestGesturePoint;
         private bool _hasLatestGesturePoint;
@@ -103,97 +104,101 @@ namespace MouseGestures.Services
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            //try to minimize processing for non-mouse events or irrelevant mouse events to reduce overhead
-            if (nCode >= 0 &&
-                (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP ||
-                 wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN ||
-                 wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE ||
-                 wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN ||
-                 wParam == (IntPtr)NativeMethods.WM_LBUTTONUP))
+            if (nCode < 0)
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+            // ── Fast-path: WM_MOUSEMOVE ──────────────────────────────────────────────
+            // Fires hundreds of times per second. Skip IsVisualStudioWindow() entirely
+            // and only do the minimum work needed to track gesture points.
+            if (wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE)
             {
-                    bool isVsWindow = IsVisualStudioWindow();                
-                    var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-                    bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
-
-                    // Handle WM_RBUTTONUP
-                    if (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP && _isRightButtonDown)
-                    {
-                        // If this is our synthetic event, let it pass through
-                        if (_isSyntheticEvent && isInjected)
-                        {
-                            _isSyntheticEvent = false;
-                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
-                            return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                        }
-
-                        bool wasRecordingMode = _isRecordingMode;
-                        bool wasGestureActive = _isGestureActive;
-
-                        _logger.TraceEvent(TraceEventType.Verbose, 0,
-                            $"WM_RBUTTONUP detected, VS active: {isVsWindow}, gesture active: {wasGestureActive}, recording: {wasRecordingMode}");
-
-                        HandleRightButtonUp();
-
-                        // Block WM_RBUTTONUP if gesture was active (to prevent context menu)
-                        // Then send synthetic event to keep Windows mouse state correct
-                        if (isVsWindow && wasGestureActive && !wasRecordingMode)
-                        {
-                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
-
-                            // Send synthetic RBUTTONUP to keep Windows state consistent
-                            SendSyntheticRightButtonUp();
-
-                            return (IntPtr)1; // Block original event
-                        }
-
-                        return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                    }
-
-                    // For other events, only process if VS is active window
-                    if (!isVsWindow)
-                    {
-                        return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                    }
-
-                    var currentPoint = new Point(hookStruct.pt.x, hookStruct.pt.y);
-
-                    try
-                    {
-                        if (wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN)
-                        {
-                            HandleRightButtonDown(currentPoint);
-
-                            // Block right button down if gesture is already active
-                            if (_isGestureActive)
-                            {
-                                _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN - gesture active");
-                                return (IntPtr)1;
-                            }
-                        }
-                        else if (wParam == (IntPtr)NativeMethods.WM_MOUSEMOVE && _isRightButtonDown)
-                        {
-                            // DO NOT block WM_MOUSEMOVE - let the cursor move freely
-                            HandleMouseMove(currentPoint);
-                        }
-                        else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN && _isGestureActive)
-                        {
-                            // Block left button clicks during gesture to prevent text selection/cursor repositioning
-                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_LBUTTONDOWN - gesture active");
-                            return (IntPtr)1;
-                        }
-                        else if (wParam == (IntPtr)NativeMethods.WM_LBUTTONUP && _isGestureActive)
-                        {
-                            // Don't block LBUTTONUP - prevents stuck button state
-                            _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing WM_LBUTTONUP through");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.TraceEvent(TraceEventType.Error, 0, $"Error in hook callback: {ex.Message}");
-                    }
+                if (_isRightButtonDown)
+                {
+                    var ms = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                    HandleMouseMove(new Point(ms.pt.x, ms.pt.y));
+                }
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
             }
 
-            return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            // ── Fast-path: LButton ───────────────────────────────────────────────────
+            if (wParam == (IntPtr)NativeMethods.WM_LBUTTONDOWN)
+            {
+                if (_isGestureActive)
+                {
+                    _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_LBUTTONDOWN - gesture active");
+                    return (IntPtr)1;
+                }
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            }
+
+            if (wParam == (IntPtr)NativeMethods.WM_LBUTTONUP)
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+            // ── RButton events only below this point ─────────────────────────────────
+            if (wParam != (IntPtr)NativeMethods.WM_RBUTTONDOWN &&
+                wParam != (IntPtr)NativeMethods.WM_RBUTTONUP)
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+            var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+            bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
+
+            // ── WM_RBUTTONUP ─────────────────────────────────────────────────────────
+            if (wParam == (IntPtr)NativeMethods.WM_RBUTTONUP)
+            {
+                // Synthetic right-click UP (no-gesture) — let through
+                if (_isSyntheticRightClick && isInjected)
+                {
+                    _isSyntheticRightClick = false;
+                    _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP (right-click) through");
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                }
+
+                if (!_isRightButtonDown)
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+                // Synthetic UP sent to keep Windows state consistent after blocked gesture
+                if (_isSyntheticEvent && isInjected)
+                {
+                    _isSyntheticEvent = false;
+                    _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                }
+
+                bool wasRecordingMode = _isRecordingMode;
+                bool wasGestureActive = _isGestureActive;
+
+                _logger.TraceEvent(TraceEventType.Verbose, 0,
+                    $"WM_RBUTTONUP: gesture={wasGestureActive}, recording={wasRecordingMode}");
+
+                HandleRightButtonUp();
+
+                if (wasGestureActive && !wasRecordingMode && IsVisualStudioWindow())
+                {
+                    _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
+                    SendSyntheticRightButtonUp();
+                    return (IntPtr)1;
+                }
+
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            }
+
+            // ── WM_RBUTTONDOWN ───────────────────────────────────────────────────────
+            // Synthetic right-click DOWN (no-gesture) — let through
+            if (_isSyntheticRightClick && isInjected)
+            {
+                _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONDOWN (right-click) through");
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            }
+
+            // Only intercept when VS is the foreground window
+            if (!IsVisualStudioWindow())
+                return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+            HandleRightButtonDown(new Point(hookStruct.pt.x, hookStruct.pt.y));
+
+            // Always block real WM_RBUTTONDOWN to prevent VS text cursor repositioning
+            _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN to prevent cursor repositioning");
+            return (IntPtr)1;
         }
 
         private void SendSyntheticRightButtonUp()
@@ -219,6 +224,40 @@ namespace MouseGestures.Services
 
             NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
             _logger.TraceEvent(TraceEventType.Verbose, 0, "Sent synthetic RBUTTONUP");
+        }
+
+        private void SendSyntheticRightClick()
+        {
+            _isSyntheticRightClick = true;
+
+            var inputs = new[]
+            {
+                new NativeMethods.INPUT
+                {
+                    type = NativeMethods.INPUT_MOUSE,
+                    u = new NativeMethods.InputUnion
+                    {
+                        mi = new NativeMethods.MOUSEINPUT
+                        {
+                            dwFlags = NativeMethods.MOUSEEVENTF_RIGHTDOWN
+                        }
+                    }
+                },
+                new NativeMethods.INPUT
+                {
+                    type = NativeMethods.INPUT_MOUSE,
+                    u = new NativeMethods.InputUnion
+                    {
+                        mi = new NativeMethods.MOUSEINPUT
+                        {
+                            dwFlags = NativeMethods.MOUSEEVENTF_RIGHTUP
+                        }
+                    }
+                }
+            };
+
+            NativeMethods.SendInput(2, inputs, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+            _logger.TraceEvent(TraceEventType.Verbose, 0, "Sent synthetic right-click (DOWN+UP)");
         }
 
         private void HandleRightButtonDown(Point point)
@@ -260,6 +299,10 @@ namespace MouseGestures.Services
             }
             else
             {
+                // No gesture — send synthetic right-click so context menu still appears
+                if (_gestureStartPoint.HasValue)
+                    SendSyntheticRightClick();
+
                 // Fire-and-forget - don't block hook thread
                 _ = FireEventAsync(() => RightClickDetected?.Invoke(this, EventArgs.Empty));
             }
