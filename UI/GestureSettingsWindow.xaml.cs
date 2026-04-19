@@ -1,10 +1,12 @@
 ﻿using Microsoft.VisualStudio.Shell;
 using MouseGestures.ViewModels;
+using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Navigation;
 
 namespace MouseGestures.UI
@@ -82,7 +84,7 @@ namespace MouseGestures.UI
 
                 _isUpdatingComboBox = false;
 
-                System.Diagnostics.Debug.WriteLine($"ComboBox refreshed for gesture: {viewModel.SelectedGesture.Name}, Command: {commandId}");
+                Debug.WriteLine($"ComboBox refreshed for gesture: {viewModel.SelectedGesture.Name}, Command: {commandId}");
             }
         }
 
@@ -94,9 +96,9 @@ namespace MouseGestures.UI
                 Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
                 e.Handled = true;
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to open link: {ex.Message}");
+                Debug.WriteLine($"Failed to open link: {ex.Message}");
             }
         }
 
@@ -152,7 +154,7 @@ namespace MouseGestures.UI
             if (e.AddedItems.Count > 0 && e.AddedItems[0] is VsCommandInfo selectedCommand)
             {
                 viewModel.UpdateGestureCommand(selectedCommand.CommandId, selectedCommand.DisplayName);
-                System.Diagnostics.Debug.WriteLine($"User selected command: {selectedCommand.CommandId}");
+                Debug.WriteLine($"User selected command: {selectedCommand.CommandId}");
             }
         }
 
@@ -171,6 +173,52 @@ namespace MouseGestures.UI
             {
                 comboBox.IsDropDownOpen = false;
             }
+        }
+
+        private void GestureListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0)
+                MainTabControl.SelectedIndex = 0;
+        }
+
+        private void PickColorButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(DataContext is GestureSettingsViewModel viewModel))
+                return;
+
+            using (var dialog = new System.Windows.Forms.ColorDialog())
+            {
+                dialog.FullOpen = true;
+
+                // Pre-populate with the current color if valid
+                var current = viewModel.VisualizationSettings?.TrailColor;
+                if (!string.IsNullOrWhiteSpace(current))
+                {
+                    try
+                    {
+                        var wpfColor = (Color)ColorConverter.ConvertFromString(current);
+                        dialog.Color = System.Drawing.Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B);
+                    }
+                    catch { /* ignore invalid hex, start with black */ }
+                }
+
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    var c = dialog.Color;
+                    viewModel.VisualizationSettings.TrailColor =
+                        $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                }
+            }
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (DataContext is GestureSettingsViewModel viewModel && !viewModel.RequestClose())
+            {
+                e.Cancel = true;
+            }
+
+            base.OnClosing(e);
         }
 
         protected override void OnClosed(System.EventArgs e)

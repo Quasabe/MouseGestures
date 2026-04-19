@@ -71,8 +71,10 @@ namespace MouseGestures
 
             Directory.CreateDirectory(Path.GetDirectoryName(logPath));
 
-            var fileListener = new TextWriterTraceListener(logPath);
-            fileListener.TraceOutputOptions = TraceOptions.DateTime | TraceOptions.ThreadId;
+            var fileListener = new TextWriterTraceListener(logPath)
+            {
+                TraceOutputOptions = TraceOptions.DateTime | TraceOptions.ThreadId
+            };
             logger.Listeners.Add(fileListener);
 
             // Also add console listener for Output window

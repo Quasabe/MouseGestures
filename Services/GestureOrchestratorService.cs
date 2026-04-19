@@ -38,6 +38,17 @@ namespace MouseGestures.Services
             _logger = logger;
             _visualSettings = new GestureVisualizationSettings();
 
+            // Load persisted visualization settings if available
+            var savedSettings = _gestureManager.LoadVisualizationSettingsAsync().GetAwaiter().GetResult();
+            if (savedSettings != null)
+            {
+                _visualSettings.ShowTrail = savedSettings.ShowTrail;
+                _visualSettings.ShowDirections = savedSettings.ShowDirections;
+                _visualSettings.TrailColor = savedSettings.TrailColor;
+                _visualSettings.TrailThickness = savedSettings.TrailThickness;
+                _visualSettings.MinimumGestureDistance = savedSettings.MinimumGestureDistance;
+            }
+
             SubscribeToEvents();
         }
 
@@ -318,8 +329,26 @@ namespace MouseGestures.Services
 
         public void Dispose()
         {
-            Stop();
-            CleanupAdorner();
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // Dispose managed resources
+                Stop();
+                CleanupAdorner();
+
+                // Unsubscribe from events to prevent memory leaks
+                _mouseHook.GestureStarted -= OnGestureStarted;
+                _mouseHook.GesturePointAdded -= OnGesturePointAdded;
+                _mouseHook.GestureEnded -= OnGestureEnded;
+                _mouseHook.RightClickDetected -= OnRightClickDetected;
+
+                _mouseHook?.Dispose();
+            }
         }
     }
 }

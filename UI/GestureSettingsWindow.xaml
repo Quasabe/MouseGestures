@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MouseGestures.Utils"
         mc:Ignorable="d"
         Title="Mouse Gesture Settings"
         Height="650"
@@ -16,6 +17,7 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:HexColorToBrushConverter x:Key="HexToBrush" />
 
         <Style TargetType="Window" x:Key="TransparentWindowStyle">
             <Setter Property="WindowStyle" Value="None" />
@@ -143,8 +145,10 @@
 
                     <!-- Gesture List -->
                     <ListBox Grid.Row="0"
+                             x:Name="GestureListBox"
                              ItemsSource="{Binding Gestures}"
                              SelectedItem="{Binding SelectedGesture}"
+                             SelectionChanged="GestureListBox_SelectionChanged"
                              Background="White"
                              BorderBrush="#DDDDDD">
                         <ListBox.ItemTemplate>
@@ -188,7 +192,7 @@
             </GroupBox>
 
             <!-- Right Panel - Details & Settings -->
-            <TabControl Grid.Column="2" BorderBrush="#7B68AB">
+            <TabControl x:Name="MainTabControl" Grid.Column="2" BorderBrush="#7B68AB">
                 <!-- Gesture Details Tab -->
                 <TabItem Header="Gesture Details">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -285,14 +289,20 @@
                                        FontWeight="SemiBold"
                                        Margin="0,15,0,5" />
                             <StackPanel Orientation="Horizontal">
-                                <TextBox Text="{Binding VisualizationSettings.TrailColor, UpdateSourceTrigger=PropertyChanged}"
-                                         Width="100"
-                                         Padding="8"
-                                         BorderBrush="#CCCCCC" />
-                                <TextBlock Text="  Example: #7B68AB"
-                                           Foreground="#666666"
-                                           VerticalAlignment="Center"
-                                           Margin="10,0,0,0" />
+                                <Border BorderBrush="{Binding VisualizationSettings.TrailColor, Converter={StaticResource HexToBrush}}"
+                                        BorderThickness="4"
+                                        CornerRadius="2">
+                                    <TextBox x:Name="TrailColorTextBox"
+                                             Text="{Binding VisualizationSettings.TrailColor, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="100"
+                                             Padding="6"
+                                             BorderThickness="0" />
+                                </Border>
+                                <Button Content="Pick..."
+                                        Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Click="PickColorButton_Click"
+                                        Style="{StaticResource ModernButtonStyle}" />
                             </StackPanel>
 
                             <!-- Trail Thickness -->

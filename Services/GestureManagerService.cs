@@ -16,6 +16,7 @@ namespace MouseGestures.Services
         private readonly List<MouseGesture> _gestures = new List<MouseGesture>();
         private readonly List<MouseGesture> _newGestures = new List<MouseGesture>();
         private readonly string _configFilePath;
+        private readonly string _visualizationConfigFilePath;
 
         public IReadOnlyList<MouseGesture> Gestures => _gestures.AsReadOnly();
 
@@ -24,6 +25,7 @@ namespace MouseGestures.Services
             string extensionFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MouseGestures");
             Directory.CreateDirectory(extensionFolder);
             _configFilePath = Path.Combine(extensionFolder, "gestures.json");
+            _visualizationConfigFilePath = Path.Combine(extensionFolder, "visualization.json");
 
             InitializeDefaultGestures();
         }
@@ -61,9 +63,31 @@ namespace MouseGestures.Services
             await Task.CompletedTask;
         }
 
+        public async Task SaveVisualizationSettingsAsync(GestureVisualizationSettings settings)
+        {
+            string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+            File.WriteAllText(_visualizationConfigFilePath, json);
+            await Task.CompletedTask;
+        }
+
+        public async Task<GestureVisualizationSettings> LoadVisualizationSettingsAsync()
+        {
+            if (!File.Exists(_visualizationConfigFilePath))
+                return null;
+
+            try
+            {
+                string json = File.ReadAllText(_visualizationConfigFilePath);
+                return JsonConvert.DeserializeObject<GestureVisualizationSettings>(json);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         public void AddGesture(MouseGesture gesture)
         {
-            // _gestures.Add(gesture);
             _newGestures.Add(gesture);
         }
 

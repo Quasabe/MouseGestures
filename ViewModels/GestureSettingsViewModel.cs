@@ -26,7 +26,11 @@ namespace MouseGestures.ViewModels
         private Window _ownerWindow;
         private bool _hasDuplicatePattern;
         private string _duplicatePatternMessage;
+        private bool _hasUnsavedChanges;
 
+        // Snapshots taken when the dialog opens — used to restore state on discard
+        private GestureVisualizationSettings _visualizationSnapshot;
+        private List<MouseGesture> _gesturesSnapshot;
         private double _windowOpacity = 1.0;
 
         public ObservableCollection<MouseGesture> Gestures { get; }
@@ -36,13 +40,13 @@ namespace MouseGestures.ViewModels
 
         public GestureVisualizationSettings VisualizationSettings { get; }
 
-        public string AppVersion
+        public static string AppVersion
         {
             get
             {
                 var assembly = System.Reflection.Assembly.GetExecutingAssembly();
                 var version = assembly.GetName().Version;
-                return $"{version.Major}.{version.Minor}.{version.Build}";
+                return $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
             }
         }
 
@@ -51,7 +55,16 @@ namespace MouseGestures.ViewModels
             get => _selectedGesture;
             set
             {
+                // Unsubscribe from previous gesture's property changes
+                if (_selectedGesture != null)
+                    _selectedGesture.PropertyChanged -= OnSelectedGesturePropertyChanged;
+
                 _selectedGesture = value;
+
+                // Subscribe to new gesture's property changes
+                if (_selectedGesture != null)
+                    _selectedGesture.PropertyChanged += OnSelectedGesturePropertyChanged;
+
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsGestureSelected));
 
@@ -134,6 +147,16 @@ namespace MouseGestures.ViewModels
             }
         }
 
+        public bool HasUnsavedChanges
+        {
+            get => _hasUnsavedChanges;
+            private set
+            {
+                _hasUnsavedChanges = value;
+                OnPropertyChanged();
+            }
+        }
+
         public double WindowOpacity
         {
             get => _windowOpacity;
@@ -177,6 +200,15 @@ namespace MouseGestures.ViewModels
             CancelRecordingCommand = new RelayCommand(CancelRecording, () => IsRecordingGesture);
             SaveCommand = new RelayCommand(Save, CanSave);
             ResetToDefaultsCommand = new RelayCommand(ResetToDefaults);
+
+            // Track any change to visualization settings
+            VisualizationSettings.PropertyChanged += (s, e) => HasUnsavedChanges = true;
+
+            // Track changes to gesture list items
+            Gestures.CollectionChanged += (s, e) => HasUnsavedChanges = true;
+
+            // Take a snapshot of the initial state so we can restore it on discard
+            TakeSnapshot();
         }
 
         public void SetOwnerWindow(Window window)
@@ -208,6 +240,11 @@ namespace MouseGestures.ViewModels
                     FilteredCommands.Add(command);
                 }
             }
+        }
+
+        private void OnSelectedGesturePropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            HasUnsavedChanges = true;
         }
 
         private void AddGesture()
@@ -387,13 +424,84 @@ namespace MouseGestures.ViewModels
 
         private bool CanSave()
         {
-            // Disable save if there's a duplicate pattern
             return !HasDuplicatePattern;
         }
 
         private async void Save()
         {
             await _gestureManager.SaveGesturesAsync();
+            await _gestureManager.SaveVisualizationSettingsAsync(VisualizationSettings);
+            TakeSnapshot();
+            HasUnsavedChanges = false;
+        }
+
+        private void TakeSnapshot()
+        {
+            _visualizationSnapshot = new GestureVisualizationSettings
+            {
+                ShowTrail = VisualizationSettings.ShowTrail,
+                ShowDirections = VisualizationSettings.ShowDirections,
+                TrailColor = VisualizationSettings.TrailColor,
+                TrailThickness = VisualizationSettings.TrailThickness,
+                MinimumGestureDistance = VisualizationSettings.MinimumGestureDistance
+            };
+
+            _gesturesSnapshot = _gestureManager.Gestures
+                .Select(g => new MouseGesture
+                {
+                    Id = g.Id,
+                    Name = g.Name,
+                    Pattern = new List<GestureDirection>(g.Pattern),
+                    VsCommandId = g.VsCommandId,
+                    VsCommandName = g.VsCommandName,
+                    IsEnabled = g.IsEnabled
+                })
+                .ToList();
+        }
+
+        private void RestoreSnapshot()
+        {
+            // Restore visualization settings
+            VisualizationSettings.ShowTrail = _visualizationSnapshot.ShowTrail;
+            VisualizationSettings.ShowDirections = _visualizationSnapshot.ShowDirections;
+            VisualizationSettings.TrailColor = _visualizationSnapshot.TrailColor;
+            VisualizationSettings.TrailThickness = _visualizationSnapshot.TrailThickness;
+            VisualizationSettings.MinimumGestureDistance = _visualizationSnapshot.MinimumGestureDistance;
+
+            // Restore gestures in GestureManagerService
+            foreach (var snapshot in _gesturesSnapshot)
+                _gestureManager.UpdateGesture(snapshot);
+
+            // Remove gestures that were added during this session
+            var snapshotIds = new HashSet<Guid>(_gesturesSnapshot.Select(g => g.Id));
+            foreach (var added in _gestureManager.Gestures
+                .Where(g => !snapshotIds.Contains(g.Id)).ToList())
+                _gestureManager.RemoveGesture(added.Id);
+        }
+
+        /// <summary>
+        /// Called when the user attempts to close the window.
+        /// Returns true if the window may close, false if the user cancelled.
+        /// </summary>
+        public bool RequestClose()
+        {
+            if (!HasUnsavedChanges)
+                return true;
+
+            var result = MessageBox.Show(
+                _ownerWindow,
+                "You have unsaved changes. Do you want to discard them and close?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                RestoreSnapshot();
+                return true;
+            }
+
+            return false;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

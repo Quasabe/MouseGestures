@@ -117,6 +117,7 @@ namespace MouseGestures.Services
                     var ms = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
                     HandleMouseMove(new Point(ms.pt.x, ms.pt.y));
                 }
+
                 return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
             }
 
@@ -128,6 +129,7 @@ namespace MouseGestures.Services
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_LBUTTONDOWN - gesture active");
                     return (IntPtr)1;
                 }
+
                 return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
             }
 
@@ -137,7 +139,9 @@ namespace MouseGestures.Services
             // ── RButton events only below this point ─────────────────────────────────
             if (wParam != (IntPtr)NativeMethods.WM_RBUTTONDOWN &&
                 wParam != (IntPtr)NativeMethods.WM_RBUTTONUP)
+            {
                 return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            }
 
             var hookStruct = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
             bool isInjected = (hookStruct.flags & NativeMethods.LLMHF_INJECTED) != 0;
@@ -150,17 +154,21 @@ namespace MouseGestures.Services
                 {
                     _isSyntheticRightClick = false;
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP (right-click) through");
+
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                 }
 
                 if (!_isRightButtonDown)
+                {
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                }
 
                 // Synthetic UP sent to keep Windows state consistent after blocked gesture
                 if (_isSyntheticEvent && isInjected)
                 {
                     _isSyntheticEvent = false;
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                 }
 
@@ -187,17 +195,21 @@ namespace MouseGestures.Services
             if (_isSyntheticRightClick && isInjected)
             {
                 _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONDOWN (right-click) through");
+
                 return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
             }
 
             // Only intercept when VS is the foreground window
             if (!IsVisualStudioWindow())
+            {
                 return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+            }
 
             HandleRightButtonDown(new Point(hookStruct.pt.x, hookStruct.pt.y));
 
             // Always block real WM_RBUTTONDOWN to prevent VS text cursor repositioning
             _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONDOWN to prevent cursor repositioning");
+
             return (IntPtr)1;
         }
 
@@ -381,10 +393,14 @@ namespace MouseGestures.Services
         private bool IsVisualStudioWindow()
         {
             IntPtr foregroundWindow = NativeMethods.GetForegroundWindow();
+
             if (foregroundWindow == IntPtr.Zero)
+            {
                 return false;
+            }
 
             NativeMethods.GetWindowThreadProcessId(foregroundWindow, out uint processId);
+
             return processId == _currentProcessId;
         }
 
@@ -397,8 +413,17 @@ namespace MouseGestures.Services
 
         public void Dispose()
         {
-            StopHook();
-            _hookCallback = null; // Allow GC to collect after unhook
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                StopHook();
+                _hookCallback = null; // Allow GC to collect after unhook
+            }
         }
     }
 }

@@ -3,7 +3,10 @@ using MouseGestures.UI;
 using MouseGestures.ViewModels;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
+using System.Windows.Data;
+using System.Windows.Media;
 
 namespace MouseGestures.Utils
 {
@@ -76,5 +79,25 @@ namespace MouseGestures.Utils
             var toast = new GestureToast(message, position);
             toast.Show();
         }
+    }
+
+    /// <summary>
+    /// Converts a hex color string (e.g. "#7B68AB") to a WPF SolidColorBrush.
+    /// Returns a transparent brush for any invalid value so the preview border stays empty.
+    /// </summary>
+    public class HexColorToBrushConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is string hex && !string.IsNullOrWhiteSpace(hex))
+            {
+                try { return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); }
+                catch { /* fall through */ }
+            }
+            return new SolidColorBrush(Colors.Transparent);
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotSupportedException();
     }
 }
