@@ -18,6 +18,8 @@ namespace MouseGestures.Services
         private NativeMethods.LowLevelMouseProc _hookCallback; // Keep strong reference
         private Point? _gestureStartPoint;
         private bool _isRightButtonDown;
+        private bool _cachedIsVsWindow;
+        private long _isVsWindowCacheExpiry;
         private bool _isGestureActive;
         private bool _isRecordingMode;
         private bool _isSyntheticEvent = false;      // Track synthetic RBUTTONUP (post-gesture cleanup)
@@ -366,6 +368,11 @@ namespace MouseGestures.Services
                 }
 
                 await FireEventAsync(() => GesturePointAdded?.Invoke(this, pointToDispatch));
+
+                // Throttle to ~60fps to avoid flooding the UI thread during heavy VS operations
+                // (build, solution load). Any mouse moves that arrive during this delay are
+                // coalesced – only the latest point is dispatched on the next iteration.
+                await Task.Delay(16);
             }
         }
 
@@ -392,16 +399,24 @@ namespace MouseGestures.Services
 
         private bool IsVisualStudioWindow()
         {
-            IntPtr foregroundWindow = NativeMethods.GetForegroundWindow();
+            long now = Stopwatch.GetTimestamp();
+            if (now < _isVsWindowCacheExpiry)
+                return _cachedIsVsWindow;
 
+            IntPtr foregroundWindow = NativeMethods.GetForegroundWindow();
             if (foregroundWindow == IntPtr.Zero)
             {
-                return false;
+                _cachedIsVsWindow = false;
+            }
+            else
+            {
+                NativeMethods.GetWindowThreadProcessId(foregroundWindow, out uint processId);
+                _cachedIsVsWindow = processId == _currentProcessId;
             }
 
-            NativeMethods.GetWindowThreadProcessId(foregroundWindow, out uint processId);
-
-            return processId == _currentProcessId;
+            // Cache result for 100 ms to avoid repeated WinAPI calls on every hook event
+            _isVsWindowCacheExpiry = now + (Stopwatch.Frequency / 10);
+            return _cachedIsVsWindow;
         }
 
         // Method no longer needed - always block gestures
