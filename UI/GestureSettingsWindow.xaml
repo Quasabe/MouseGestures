@@ -498,6 +498,15 @@
                                     </Hyperlink>
                                 </TextBlock>
 
+                                <Button HorizontalAlignment="Center"
+                                        Margin="0,5,0,15"
+                                        Style="{StaticResource ModernButtonStyle}"
+                                        Click="DonateButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Donate via PayPal" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+
                                 <TextBlock HorizontalAlignment="Center" Margin="0,0,0,5">
                                     <Run Text="Copyright © 2026 " Foreground="#666666" />
                                     <Hyperlink NavigateUri="mailto:peter.janak@hotmail.com"

@@ -102,6 +102,18 @@ namespace MouseGestures.UI
             }
         }
 
+        private void DonateButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://paypal.me/PetoJanak/5USD") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to open donate link: {ex.Message}");
+            }
+        }
+
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             Close();
