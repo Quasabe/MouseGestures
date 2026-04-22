@@ -24,6 +24,8 @@ namespace MouseGestures.UI
         private FormattedText _cachedDirectionText;
         private FormattedText _cachedCommandText;
         private string _matchedCommandName;
+        private readonly Typeface _typeface;
+        private readonly double _dpi;
 
         public GestureAdorner(UIElement adornedElement, GestureVisualizationSettings settings, bool isRecordingMode = false)
             : base(adornedElement)
@@ -34,6 +36,8 @@ namespace MouseGestures.UI
 
             // Pre-create frozen resources for performance
             InitializeRenderingResources();
+            _typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+            _dpi = VisualTreeHelper.GetDpi(adornedElement).PixelsPerDip;
         }
 
         private void InitializeRenderingResources()
@@ -123,6 +127,8 @@ namespace MouseGestures.UI
 
         private void DrawTrail(DrawingContext drawingContext)
         {
+            if (_points.Count < 2) return;
+
             for (int i = 1; i < _points.Count; i++)
             {
                 drawingContext.DrawLine(_trailPen, _points[i - 1], _points[i]);
@@ -131,9 +137,6 @@ namespace MouseGestures.UI
 
         private void DrawDirectionIndicators(DrawingContext drawingContext)
         {
-            var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
-            var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-
             // Create or use cached direction text
             if (_cachedDirectionText == null)
             {
@@ -142,10 +145,10 @@ namespace MouseGestures.UI
                     directionsText,
                     System.Globalization.CultureInfo.CurrentCulture,
                     FlowDirection.LeftToRight,
-                    typeface,
+                    _typeface,
                     16,
                     Brushes.White,
-                    dpi);
+                    _dpi);
             }
 
             var lastPoint = _points[_points.Count - 1];
@@ -168,10 +171,10 @@ namespace MouseGestures.UI
                         _matchedCommandName,
                         System.Globalization.CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight,
-                        typeface,
+                        _typeface,
                         14,
                         Brushes.White,
-                        dpi);
+                        _dpi);
                 }
 
                 // Adjust direction box to be on top

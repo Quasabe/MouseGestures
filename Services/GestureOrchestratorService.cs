@@ -263,9 +263,6 @@ namespace MouseGestures.Services
                     _logger.TraceEvent(TraceEventType.Information, 0,
                         $"Gesture matched: {matchingGesture.Name}");
 
-                    // Tell hook to block context menu for this matched gesture
-                    _mouseHook.SetShouldBlockContextMenu(true);
-
                     ExecuteVsCommand(matchingGesture.VsCommandId);
 
                     // Reset mouse hook state
@@ -275,9 +272,6 @@ namespace MouseGestures.Services
                 {
                     _logger.TraceEvent(TraceEventType.Information, 0,
                         $"No matching gesture for pattern: {string.Join(", ", detectedPattern)}");
-
-                    // Tell hook to block context menu for this matched gesture
-                    _mouseHook.SetShouldBlockContextMenu(true);
                 }
             }
         }

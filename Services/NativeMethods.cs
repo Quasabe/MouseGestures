@@ -88,5 +88,30 @@ namespace MouseGestures.Services
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        public const int WM_QUIT = 0x0012;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public POINT pt;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+        [DllImport("user32.dll")]
+        public static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr DispatchMessage(ref MSG lpmsg);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool PostThreadMessage(int idThread, uint msg, IntPtr wParam, IntPtr lParam);
     }
 }

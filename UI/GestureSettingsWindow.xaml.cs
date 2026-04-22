@@ -121,15 +121,12 @@ namespace MouseGestures.UI
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape)
+            if (e.Key == Key.Escape && DataContext is GestureSettingsViewModel viewModel && viewModel.IsRecordingGesture)
             {
-                if (DataContext is GestureSettingsViewModel viewModel && viewModel.IsRecordingGesture)
-                {
-                    // Cancel recording when ESC is pressed
-                    ThreadHelper.ThrowIfNotOnUIThread();
-                    viewModel.CancelRecordingCommand.Execute(null);
-                    e.Handled = true;
-                }
+                // Cancel recording when ESC is pressed
+                ThreadHelper.ThrowIfNotOnUIThread();
+                viewModel.CancelRecordingCommand.Execute(null);
+                e.Handled = true;
             }
         }
 

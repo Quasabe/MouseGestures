@@ -419,13 +419,6 @@ namespace MouseGestures.Services
             return _cachedIsVsWindow;
         }
 
-        // Method no longer needed - always block gestures
-        public void SetShouldBlockContextMenu(bool shouldBlock)
-        {
-            // Kept for compatibility, does nothing
-            _logger.TraceEvent(TraceEventType.Verbose, 0, $"SetShouldBlockContextMenu called (ignored)");
-        }
-
         public void Dispose()
         {
             Dispose(true);
