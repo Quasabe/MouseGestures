@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="MouseGestures.94562305-f936-4b56-b160-176b58df9fea" Version="1.3.0.26" Language="en-US" Publisher="_Peter" />
+        <Identity Id="MouseGestures.94562305-f936-4b56-b160-176b58df9fea" Version="1.3.0.27" Language="en-US" Publisher="_Peter" />
         <DisplayName>Mouse Gestures for Visual Studio</DisplayName>
         <Description xml:space="preserve">Execute Visual Studio commands using mouse gestures. Hold right mouse button and draw patterns to trigger various VS functions. Navigate backward with left gesture, forward with right, and much more!</Description>
         <MoreInfo>https://github.com/Quasabe/MouseGestures</MoreInfo>
