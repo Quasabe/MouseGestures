@@ -10,6 +10,9 @@ using System.Windows;
 using System.Windows.Input;
 using Microsoft.VisualStudio.Shell;
 using MouseGesture = MouseGestures.Models.MouseGesture;
+using Microsoft.Win32;
+using Newtonsoft.Json;
+using System.IO;
 
 namespace MouseGestures.ViewModels
 {
@@ -177,6 +180,8 @@ namespace MouseGestures.ViewModels
         public ICommand CancelRecordingCommand { get; }
         public ICommand SaveCommand { get; }
         public ICommand ResetToDefaultsCommand { get; }
+        public ICommand ExportSettingsCommand { get; }
+        public ICommand ImportSettingsCommand { get; }
 
         public GestureSettingsViewModel(GestureManagerService gestureManager, GestureOrchestratorService orchestrator)
         {
@@ -200,6 +205,8 @@ namespace MouseGestures.ViewModels
             CancelRecordingCommand = new RelayCommand(CancelRecording, () => IsRecordingGesture);
             SaveCommand = new RelayCommand(Save, CanSave);
             ResetToDefaultsCommand = new RelayCommand(ResetToDefaults);
+            ExportSettingsCommand = new RelayCommand(ExportSettings);
+            ImportSettingsCommand = new RelayCommand(ImportSettings);
 
             // Track any change to visualization settings
             VisualizationSettings.PropertyChanged += (s, e) => HasUnsavedChanges = true;
@@ -502,6 +509,157 @@ namespace MouseGestures.ViewModels
             }
 
             return false;
+        }
+
+        private void ExportSettings()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            var saveFileDialog = new SaveFileDialog
+            {
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                DefaultExt = ".json",
+                AddExtension = true,
+                FileName = "mouse-gestures-settings.json",
+                Title = "Export Gesture Settings"
+            };
+
+            if (saveFileDialog.ShowDialog(_ownerWindow) != true)
+                return;
+
+            try
+            {
+                var exportModel = new GestureSettingsExport
+                {
+                    Gestures = Gestures.Select(g => new MouseGesture
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        Pattern = g.Pattern != null ? new List<GestureDirection>(g.Pattern) : new List<GestureDirection>(),
+                        VsCommandId = g.VsCommandId,
+                        VsCommandName = g.VsCommandName,
+                        IsEnabled = g.IsEnabled
+                    }).ToList(),
+                    VisualizationSettings = new GestureVisualizationSettings
+                    {
+                        ShowTrail = VisualizationSettings.ShowTrail,
+                        ShowDirections = VisualizationSettings.ShowDirections,
+                        TrailColor = VisualizationSettings.TrailColor,
+                        TrailThickness = VisualizationSettings.TrailThickness,
+                        MinimumGestureDistance = VisualizationSettings.MinimumGestureDistance
+                    }
+                };
+
+                var json = JsonConvert.SerializeObject(exportModel, Formatting.Indented);
+                File.WriteAllText(saveFileDialog.FileName, json);
+
+                MessageBox.Show(
+                    _ownerWindow,
+                    "Settings were exported successfully.",
+                    "Export Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    _ownerWindow,
+                    $"Failed to export settings.\n\n{ex.Message}",
+                    "Export Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ImportSettings()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                DefaultExt = ".json",
+                Title = "Import Gesture Settings"
+            };
+
+            if (openFileDialog.ShowDialog(_ownerWindow) != true)
+                return;
+
+            var overwriteResult = MessageBox.Show(
+                _ownerWindow,
+                "Import will overwrite current gestures and visualization settings in this window.\n\nDo you want to continue?",
+                "Confirm Import",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (overwriteResult != MessageBoxResult.Yes)
+                return;
+
+            try
+            {
+                var json = File.ReadAllText(openFileDialog.FileName);
+                var imported = JsonConvert.DeserializeObject<GestureSettingsExport>(json);
+
+                if (imported == null || imported.Gestures == null || imported.VisualizationSettings == null)
+                {
+                    MessageBox.Show(
+                        _ownerWindow,
+                        "The selected file does not contain valid gesture settings.",
+                        "Import Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    return;
+                }
+
+                var importedGestures = imported.Gestures
+                    .Where(g => g != null)
+                    .Select(g => new MouseGesture
+                    {
+                        Id = g.Id == Guid.Empty ? Guid.NewGuid() : g.Id,
+                        Name = g.Name ?? string.Empty,
+                        Pattern = g.Pattern != null ? new List<GestureDirection>(g.Pattern) : new List<GestureDirection>(),
+                        VsCommandId = g.VsCommandId ?? string.Empty,
+                        VsCommandName = g.VsCommandName ?? string.Empty,
+                        IsEnabled = g.IsEnabled
+                    })
+                    .ToList();
+
+                _gestureManager.ReplaceAllGestures(importedGestures);
+
+                Gestures.Clear();
+                foreach (var gesture in importedGestures)
+                {
+                    Gestures.Add(gesture);
+                }
+
+                SelectedGesture = null;
+
+                VisualizationSettings.ShowTrail = imported.VisualizationSettings.ShowTrail;
+                VisualizationSettings.ShowDirections = imported.VisualizationSettings.ShowDirections;
+                VisualizationSettings.TrailColor = imported.VisualizationSettings.TrailColor;
+                VisualizationSettings.TrailThickness = imported.VisualizationSettings.TrailThickness;
+                VisualizationSettings.MinimumGestureDistance = imported.VisualizationSettings.MinimumGestureDistance;
+
+                HasDuplicatePattern = false;
+                DuplicatePatternMessage = string.Empty;
+                HasUnsavedChanges = true;
+
+                MessageBox.Show(
+                    _ownerWindow,
+                    "Settings were imported successfully.",
+                    "Import Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    _ownerWindow,
+                    $"Failed to import settings.\n\n{ex.Message}",
+                    "Import Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

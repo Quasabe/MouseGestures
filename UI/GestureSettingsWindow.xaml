@@ -536,11 +536,21 @@
 
         <!-- Bottom Buttons X -->
         <Grid Grid.Row="3" Margin="0,20,0,0">
-            <Button Content="🔄 Reset to Defaults"
-                    Command="{Binding ResetToDefaultsCommand}"
-                    Style="{StaticResource DangerButtonStyle}"
-                    Width="150"
-                    HorizontalAlignment="Left" />
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Left">
+                <Button Content="🔄 Reset to Defaults"
+                        Command="{Binding ResetToDefaultsCommand}"
+                        Style="{StaticResource DangerButtonStyle}"
+                        Width="150" />
+                <Button Content="📥 Import"
+                        Command="{Binding ImportSettingsCommand}"
+                        Style="{StaticResource ModernButtonStyle}"
+                        Width="100" />
+                <Button Content="📤 Export"
+                        Command="{Binding ExportSettingsCommand}"
+                        Style="{StaticResource ModernButtonStyle}"
+                        Width="100" />
+            </StackPanel>
 
             <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Right">

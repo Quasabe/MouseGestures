@@ -53,6 +53,7 @@
   <ItemGroup>
     <Compile Include="Commands\OpenGestureSettingsCommand.cs" />
     <Compile Include="Models\GestureDirection.cs" />
+    <Compile Include="Models\GestureSettingsExport.cs" />
     <Compile Include="Models\GestureVisualizationSettings.cs" />
     <Compile Include="Models\MouseGesture.cs" />
     <Compile Include="MouseGesturesPackage.cs" />

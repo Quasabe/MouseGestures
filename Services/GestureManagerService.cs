@@ -152,6 +152,7 @@ namespace MouseGestures.Services
         public void ResetToDefaults()
         {
             _gestures.Clear();
+            _newGestures.Clear();
             InitializeDefaultGestures();
         }
 
@@ -161,6 +162,17 @@ namespace MouseGestures.Services
             {
                 File.Delete(_configFilePath);
             }
+        }
+
+        public void ReplaceAllGestures(IEnumerable<MouseGesture> gestures)
+        {
+            _gestures.Clear();
+            _newGestures.Clear();
+
+            if (gestures == null)
+                return;
+
+            _gestures.AddRange(gestures);
         }
 
         private void InitializeDefaultGestures()
