@@ -28,9 +28,15 @@ namespace MouseGestures.Utils
                 new VsCommandInfo("Edit.Undo", "Undo"),
                 new VsCommandInfo("Edit.Redo", "Redo"),
                 new VsCommandInfo("Build.BuildSolution", "Build Solution"),
+                new VsCommandInfo("Build.BuildSelection", "Build Current Project"),
+                new VsCommandInfo("Build.BuildCancel", "Cancel Build"),
+                new VsCommandInfo("Build.RebuildSolution", "Rebuild Solution"),
+                new VsCommandInfo("Build.RebuildSelection", "Rebuild Current Project"),
+                new VsCommandInfo("Build.RebuildAll", "Rebuild All Projects"),
                 new VsCommandInfo("Debug.Start", "Start Debugging"),
                 new VsCommandInfo("Debug.StopDebugging", "Stop Debugging"),
                 new VsCommandInfo("File.SaveAll", "Save All"),
+                new VsCommandInfo("File.CloseOtherTabs", "Close Other Tabs"),
                 new VsCommandInfo("Window.CloseDocumentWindow", "Close Document"),
                 new VsCommandInfo("Edit.FormatDocument", "Format Document"),
                 new VsCommandInfo("Edit.FormatSelection", "Format Selection"),
@@ -41,6 +47,7 @@ namespace MouseGestures.Utils
                 new VsCommandInfo("Edit.QuickInfo", "Quick Info"),
                 new VsCommandInfo("Edit.ParameterInfo", "Parameter Info"),
                 new VsCommandInfo("Edit.CompleteWord", "Complete Word"),
+                new VsCommandInfo("Debug.Breakpoints", "View Breakpoints"),
             };
         }
 
