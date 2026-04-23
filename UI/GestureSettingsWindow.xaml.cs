@@ -119,6 +119,12 @@ namespace MouseGestures.UI
             Close();
         }
 
+        private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ButtonState == MouseButtonState.Pressed)
+                DragMove();
+        }
+
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Escape && DataContext is GestureSettingsViewModel viewModel && viewModel.IsRecordingGesture)

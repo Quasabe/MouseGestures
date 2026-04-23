@@ -4,16 +4,24 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:MouseGestures.Utils"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="Mouse Gesture Settings"
-        Height="650"
-        Width="1100"
+        Height="670"
+        Width="1120"
         WindowStartupLocation="CenterScreen"
         PreviewKeyDown="Window_PreviewKeyDown"
         Background="#F0F0F0"
         Opacity="{Binding WindowOpacity}"
         WindowStyle="None"
         AllowsTransparency="True">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False"
+                            GlassFrameThickness="0" />
+    </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -122,7 +130,11 @@
                    FontSize="24"
                    FontWeight="Bold"
                    Foreground="#7B68AB"
-                   Margin="0,0,0,20" />
+                   Margin="0,0,0,20"
+                   Cursor="SizeAll"
+                   shell:WindowChrome.IsHitTestVisibleInChrome="False"
+                   MouseLeftButtonDown="Header_MouseLeftButtonDown"
+                   ToolTip="Drag to move window" />
 
         <!-- Main Content -->
         <Grid Grid.Row="1">
