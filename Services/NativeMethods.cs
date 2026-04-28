@@ -111,6 +111,9 @@ namespace MouseGestures.Services
         [DllImport("user32.dll")]
         public static extern IntPtr DispatchMessage(ref MSG lpmsg);
 
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool PostThreadMessage(int idThread, uint msg, IntPtr wParam, IntPtr lParam);
     }

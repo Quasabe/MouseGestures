@@ -1,9 +1,12 @@
 ﻿using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace MouseGestures.Services
 {
@@ -12,10 +15,21 @@ namespace MouseGestures.Services
     /// </summary>
     public class MouseHookService : IDisposable
     {
+        private const int GestureDispatchIntervalMs = 8;
+        private const int MaxQueuedGesturePoints = 2048;
+        private const int MaxPointsPerDispatchTick = 256;
+
         private readonly TraceSource _logger;
         private readonly uint _currentProcessId;
+        private readonly ConcurrentQueue<Point> _queuedGesturePoints = new ConcurrentQueue<Point>();
+        private readonly ManualResetEventSlim _hookThreadReady = new ManualResetEventSlim(false);
+
         private IntPtr _hookId = IntPtr.Zero;
         private NativeMethods.LowLevelMouseProc _hookCallback; // Keep strong reference
+        private Thread _hookThread;
+        private int _hookThreadId;
+        private bool _hookStartupSucceeded;
+
         private Point? _gestureStartPoint;
         private bool _isRightButtonDown;
         private bool _cachedIsVsWindow;
@@ -24,17 +38,13 @@ namespace MouseGestures.Services
         private bool _isRecordingMode;
         private bool _isSyntheticEvent = false;      // Track synthetic RBUTTONUP (post-gesture cleanup)
         private bool _isSyntheticRightClick = false;   // Track synthetic right-click (no-gesture case)
-        private readonly object _gesturePointDispatchLock = new object();
-        private Point _latestGesturePoint;
-        private bool _hasLatestGesturePoint;
-        private bool _isGesturePointDispatchScheduled;
+
+        private DispatcherTimer _gesturePointDispatchTimer;
+        private int _queuedGesturePointCount;
 
         public event EventHandler<Point> GestureStarted;
-
         public event EventHandler<Point> GesturePointAdded;
-
         public event EventHandler GestureEnded;
-
         public event EventHandler RightClickDetected;
 
         public bool IsHookActive => _hookId != IntPtr.Zero;
@@ -53,44 +63,64 @@ namespace MouseGestures.Services
 
         public void StartHook()
         {
-            if (_hookId != IntPtr.Zero)
+            if (_hookThread != null)
             {
                 _logger.TraceEvent(TraceEventType.Warning, 0, "Hook already active");
                 return;
             }
 
             // Store delegate in member field to prevent GC collection
-            _hookCallback = HookCallback;
+            EnsureGesturePointDispatchTimerStarted();
 
-            using (Process curProcess = Process.GetCurrentProcess())
-            using (ProcessModule curModule = curProcess.MainModule)
+            _hookThreadReady.Reset();
+            _hookStartupSucceeded = false;
+
+            _hookThread = new Thread(HookThreadProc)
             {
-                if (curModule != null)
-                {
-                    _hookId = NativeMethods.SetWindowsHookEx(
-                        NativeMethods.WH_MOUSE_LL,
-                        _hookCallback, // Use stored delegate
-                        NativeMethods.GetModuleHandle(curModule.ModuleName),
-                        0);
-                }
+                IsBackground = true,
+                Name = "MouseGestures.MouseHookThread"
+            };
+
+            _hookThread.Start();
+
+            if (!_hookThreadReady.Wait(TimeSpan.FromSeconds(3)) || !_hookStartupSucceeded)
+            {
+                _logger.TraceEvent(TraceEventType.Error, 0, "Failed to set mouse hook on dedicated hook thread");
+                StopHook();
+                return;
             }
 
-            if (_hookId == IntPtr.Zero)
-            {
-                _logger.TraceEvent(TraceEventType.Error, 0, "Failed to set mouse hook");
-            }
-            else
-            {
-                _logger.TraceEvent(TraceEventType.Information, 0, "Mouse hook activated");
-            }
+            _logger.TraceEvent(TraceEventType.Information, 0, "Mouse hook activated (dedicated hook thread)");
         }
 
         public void StopHook()
         {
-            if (_hookId != IntPtr.Zero)
+            var thread = _hookThread;
+            if (thread == null)
             {
-                NativeMethods.UnhookWindowsHookEx(_hookId);
+                StopGesturePointDispatchTimer();
+                return;
+            }
+
+            try
+            {
+                if (_hookThreadId != 0)
+                {
+                    NativeMethods.PostThreadMessage(_hookThreadId, NativeMethods.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+                }
+
+                if (!thread.Join(TimeSpan.FromSeconds(2)))
+                {
+                    _logger.TraceEvent(TraceEventType.Warning, 0, "Hook thread did not exit in time");
+                }
+            }
+            finally
+            {
+                _hookThread = null;
+                _hookThreadId = 0;
                 _hookId = IntPtr.Zero;
+                ClearQueuedGesturePoints();
+                StopGesturePointDispatchTimer();
                 _logger.TraceEvent(TraceEventType.Information, 0, "Mouse hook deactivated");
             }
         }
@@ -100,8 +130,56 @@ namespace MouseGestures.Services
             _isRightButtonDown = false;
             _isGestureActive = false;
             _gestureStartPoint = null;
-            ClearPendingGesturePointDispatch();
+            ClearQueuedGesturePoints();
             _logger.TraceEvent(TraceEventType.Information, 0, "Gesture state reset");
+        }
+
+        private void HookThreadProc()
+        {
+            try
+            {
+                _hookThreadId = (int)NativeMethods.GetCurrentThreadId();
+                _hookCallback = HookCallback;
+
+                using (Process curProcess = Process.GetCurrentProcess())
+                using (ProcessModule curModule = curProcess.MainModule)
+                {
+                    if (curModule != null)
+                    {
+                        _hookId = NativeMethods.SetWindowsHookEx(
+                            NativeMethods.WH_MOUSE_LL,
+                            _hookCallback, // Use stored delegate
+                            NativeMethods.GetModuleHandle(curModule.ModuleName),
+                            0);
+                    }
+                }
+
+                _hookStartupSucceeded = _hookId != IntPtr.Zero;
+                _hookThreadReady.Set();
+
+                if (!_hookStartupSucceeded)
+                    return;
+
+                while (NativeMethods.GetMessage(out NativeMethods.MSG msg, IntPtr.Zero, 0, 0) > 0)
+                {
+                    NativeMethods.TranslateMessage(ref msg);
+                    NativeMethods.DispatchMessage(ref msg);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.TraceEvent(TraceEventType.Error, 0, $"Hook thread failure: {ex.Message}");
+                _hookStartupSucceeded = false;
+                _hookThreadReady.Set();
+            }
+            finally
+            {
+                if (_hookId != IntPtr.Zero)
+                {
+                    NativeMethods.UnhookWindowsHookEx(_hookId);
+                    _hookId = IntPtr.Zero;
+                }
+            }
         }
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -116,6 +194,12 @@ namespace MouseGestures.Services
             {
                 if (_isRightButtonDown)
                 {
+                    if (!IsVisualStudioWindow())
+                    {
+                        CancelGestureDueToInactiveVsWindow();
+                        return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                    }
+
                     var ms = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
                     HandleMouseMove(new Point(ms.pt.x, ms.pt.y));
                 }
@@ -156,21 +240,22 @@ namespace MouseGestures.Services
                 {
                     _isSyntheticRightClick = false;
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP (right-click) through");
-
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                 }
 
-                if (!_isRightButtonDown)
-                {
-                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
-                }
-
-                // Synthetic UP sent to keep Windows state consistent after blocked gesture
                 if (_isSyntheticEvent && isInjected)
                 {
                     _isSyntheticEvent = false;
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Allowing synthetic WM_RBUTTONUP through");
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                }
 
+                if (!_isRightButtonDown)
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+                if (!IsVisualStudioWindow())
+                {
+                    CancelGestureDueToInactiveVsWindow();
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
                 }
 
@@ -182,7 +267,7 @@ namespace MouseGestures.Services
 
                 HandleRightButtonUp();
 
-                if (wasGestureActive && !wasRecordingMode && IsVisualStudioWindow())
+                if (wasGestureActive && !wasRecordingMode)
                 {
                     _logger.TraceEvent(TraceEventType.Verbose, 0, "Blocking WM_RBUTTONUP after gesture, sending synthetic event");
                     SendSyntheticRightButtonUp();
@@ -279,7 +364,7 @@ namespace MouseGestures.Services
             _isRightButtonDown = true;
             _gestureStartPoint = point;
             _isGestureActive = false;
-            ClearPendingGesturePointDispatch();
+            ClearQueuedGesturePoints();
             _logger.TraceEvent(TraceEventType.Verbose, 0, $"Right button down at {point}");
         }
 
@@ -298,7 +383,7 @@ namespace MouseGestures.Services
             }
             else if (_isGestureActive)
             {
-                QueueLatestGesturePoint(currentPoint);
+                QueueGesturePoint(currentPoint);
             }
         }
 
@@ -323,65 +408,122 @@ namespace MouseGestures.Services
 
             _isRightButtonDown = false;
             _isGestureActive = false;
-            ClearPendingGesturePointDispatch();
+            _gestureStartPoint = null;
+            ClearQueuedGesturePoints();
             _logger.TraceEvent(TraceEventType.Information, 0, "STATE RESET: _isGestureActive=false, _isRightButtonDown=false");
         }
 
-        private void QueueLatestGesturePoint(Point currentPoint)
+        private void CancelGestureDueToInactiveVsWindow()
         {
-            bool shouldStartDispatch = false;
+            if (!_isRightButtonDown && !_isGestureActive)
+                return;
 
-            lock (_gesturePointDispatchLock)
+            bool hadActiveGesture = _isGestureActive;
+
+            _isRightButtonDown = false;
+            _isGestureActive = false;
+            _gestureStartPoint = null;
+            ClearQueuedGesturePoints();
+
+            if (hadActiveGesture)
             {
-                _latestGesturePoint = currentPoint;
-                _hasLatestGesturePoint = true;
-
-                if (!_isGesturePointDispatchScheduled)
-                {
-                    _isGesturePointDispatchScheduled = true;
-                    shouldStartDispatch = true;
-                }
+                _ = FireEventAsync(() => RightClickDetected?.Invoke(this, EventArgs.Empty));
             }
 
-            if (shouldStartDispatch)
-            {
-                _ = DispatchGesturePointsAsync();
-            }
+            _logger.TraceEvent(TraceEventType.Verbose, 0, "Gesture capture stopped - Visual Studio window is not active");
         }
 
-        private async Task DispatchGesturePointsAsync()
+        private void QueueGesturePoint(Point point)
         {
-            while (true)
+            if (Volatile.Read(ref _queuedGesturePointCount) >= MaxQueuedGesturePoints && _queuedGesturePoints.TryDequeue(out _))
             {
-                Point pointToDispatch;
+                Interlocked.Decrement(ref _queuedGesturePointCount);
+            }
 
-                lock (_gesturePointDispatchLock)
+            _queuedGesturePoints.Enqueue(point);
+            Interlocked.Increment(ref _queuedGesturePointCount);
+        }
+
+        private void EnsureGesturePointDispatchTimerStarted()
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                _logger.TraceEvent(TraceEventType.Warning, 0, "Application dispatcher unavailable - gesture point batching timer not started");
+                return;
+            }
+
+            Action startTimer = () =>
+            {
+                if (_gesturePointDispatchTimer == null)
                 {
-                    if (!_hasLatestGesturePoint)
+                    _gesturePointDispatchTimer = new DispatcherTimer(DispatcherPriority.Render)
                     {
-                        _isGesturePointDispatchScheduled = false;
-                        return;
-                    }
-
-                    pointToDispatch = _latestGesturePoint;
-                    _hasLatestGesturePoint = false;
+                        Interval = TimeSpan.FromMilliseconds(GestureDispatchIntervalMs)
+                    };
+                    _gesturePointDispatchTimer.Tick += GesturePointDispatchTimer_Tick;
                 }
 
-                await FireEventAsync(() => GesturePointAdded?.Invoke(this, pointToDispatch));
+                if (!_gesturePointDispatchTimer.IsEnabled)
+                {
+                    _gesturePointDispatchTimer.Start();
+                }
+            };
 
-                // Throttle to ~60fps to avoid flooding the UI thread during heavy VS operations
-                // (build, solution load). Any mouse moves that arrive during this delay are
-                // coalesced – only the latest point is dispatched on the next iteration.
-                await Task.Delay(16);
+            if (dispatcher.CheckAccess())
+                startTimer();
+            else
+                dispatcher.BeginInvoke(startTimer);
+        }
+
+        private void StopGesturePointDispatchTimer()
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || _gesturePointDispatchTimer == null)
+                return;
+
+            Action stopTimer = () =>
+            {
+                if (_gesturePointDispatchTimer != null)
+                {
+                    _gesturePointDispatchTimer.Stop();
+                    _gesturePointDispatchTimer.Tick -= GesturePointDispatchTimer_Tick;
+                    _gesturePointDispatchTimer = null;
+                }
+            };
+
+            if (dispatcher.CheckAccess())
+                stopTimer();
+            else
+                dispatcher.BeginInvoke(stopTimer);
+        }
+
+        private void GesturePointDispatchTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                int processed = 0;
+                while (processed < MaxPointsPerDispatchTick && _queuedGesturePoints.TryDequeue(out var point))
+                {
+                    Interlocked.Decrement(ref _queuedGesturePointCount);
+                    GesturePointAdded?.Invoke(this, point);
+                    processed++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.TraceEvent(TraceEventType.Error, 0, $"Error dispatching gesture points: {ex.Message}");
             }
         }
 
-        private void ClearPendingGesturePointDispatch()
+        private void ClearQueuedGesturePoints()
         {
-            lock (_gesturePointDispatchLock)
+            while (_queuedGesturePoints.TryDequeue(out _))
             {
-                _hasLatestGesturePoint = false;
+                Interlocked.Decrement(ref _queuedGesturePointCount);
             }
+
+            Interlocked.Exchange(ref _queuedGesturePointCount, 0);
         }
 
         private async Task FireEventAsync(Action eventInvoker)
@@ -430,7 +572,8 @@ namespace MouseGestures.Services
             if (disposing)
             {
                 StopHook();
-                _hookCallback = null; // Allow GC to collect after unhook
+                _hookCallback = null;
+                _hookThreadReady.Dispose();
             }
         }
     }
